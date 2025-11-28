@@ -1,0 +1,107 @@
+
+name: Deploy application and infra with Terraform
+
+on:
+  push:
+    branches:
+      - master
+    paths:
+      - "project_1/**" # trigger only when there is a change in project_1 folder
+
+env:
+
+  AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+  AWS_SECRET_ACCESS_KEY:  ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+  AWS_DEFAULT_REGION: ${{ secrets.AWS_DEFAULT_REGION }}
+
+jobs:
+
+  build:
+
+    name: Provision and deploy container application
+    runs-on: ubuntu-latest
+    steps:
+
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Check and install AWS cli
+        run: |
+          if ! command -v aws &> /dev/null
+          then
+            echo "AWS CLI not found. Installing..."
+            curl "https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip" -o "awscliv2.zip"
+            unzip awscliv2.zip
+            sudo ./aws/install
+          else
+            echo "AWS CLI is already installed: $(aws --version)"
+          fi
+          aws --version
+
+      - name: Configure AWS Credentials
+        run: |
+          echo "Configuring AWS credentials ..."
+          mkdir -p ~/.aws
+          cat > ~/.aws/credentials <<EOL
+          [default]
+          aws_access_key_id=$AWS_ACCESS_KEY_ID
+          aws_secret_access_key=$AWS_SECRET_ACCESS_KEY
+          EOL
+
+          cat > ~/.aws/config <<EOL
+          [default]
+          region=$AWS_DEFAULT_REGION
+          output=json
+          EOL
+
+      # - name: Get AWS credentials from Secrets Manager
+      #   id: creds
+      #   run: |
+      #     secret=$(aws secretsmanager get-secret-value --region us-east-1 --secret-id my/aws/creds --query SecretString --output text)
+      #     echo "AWS_ACCESS_KEY_ID=$(echo $secret | jq -r .AWS_ACCESS_KEY_ID)" >> $GITHUB_ENV
+      #     echo "AWS_SECRET_ACCESS_KEY=$(echo $secret | jq -r .AWS_SECRET_ACCESS_KEY)" >> $GITHUB_ENV
+      #     echo "AWS_DEFAULT_REGION=$(echo $secret | jq -r .AWS_DEFAULT_REGION)" >> $GITHUB_ENV
+
+      - name: Validate AWS credentials configured correctly
+        run: |
+          aws sts get-caller-identity
+
+      - name: Install Terraform manually
+        run: |
+          echo "Installing Terraform..."
+          TERRAFORM_VERSION=1.9.5
+          curl -fsSL https://releases.hashicorp.com/terraform/${TERRAFORM_VERSION}/terraform_${TERRAFORM_VERSION}_linux_amd64.zip -o terraform.zip
+          unzip terraform.zip
+          sudo mv terraform /usr/local/bin/
+          terraform --version
+
+      # Terraform Init
+      - name: Terraform Init
+        working-directory: ./project_1
+        run: |
+          echo "Running terraform init command ..."
+          terraform init
+
+      - name: Terraform Plan
+        working-directory: ./project_1
+        run: |
+          echo "Running 'terraform plan' command ..."
+          terraform plan
+
+      - name: Terraform apply
+        working-directory: ./project_1
+        run: |
+          echo "Running 'terraform apply' command ..."
+          terraform apply --auto-approve
+
+      - name: Waiting 6-7 minutes for you to check resource before destroy
+        run: |
+          echo "Finish checking resource in 6-7 minutes"
+          sleep 360
+          echo "Continuing now"
+
+      - name: Terraform destroy
+        working-directory: ./project_1
+        run: |
+          echo "Running 'terraform destroy' command ..."
+          terraform destroy --auto-approve
